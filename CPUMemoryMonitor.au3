@@ -9,8 +9,10 @@
 
 Global $logFile = FileOpen("C:\CopTrax Support\CPUMemoryMonitor.log", 1+8)
 FileWriteLine($logFile, "")
-FileWriteLine($logFile, @YEAR & "-" & @MON & "-" & @MDAY)
+FileWriteLine($logFile, @YEAR & "-" & @MON & "-" & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC)
 FileWriteLine($logFile, "PID" & @TAB & "Process Name" & @TAB & "Working set size" & @TAB & "Peak working set size")
+Local $hTimer = TimerInit()	; Begin the timer and store the handler
+
 Global $pl = ProcessList()
 
 Local $i
@@ -23,6 +25,8 @@ For $i = 0 To UBound($pl, $UBOUND_ROWS)-1
 		FileWriteLine($logFile, $pl[$i][1] & @TAB & $pl[$i][0] & @TAB & "#" & @TAB & "#")
 	EndIf
 Next
+Local $currentTime = TimerDiff($hTimer)
+FileWriteLine($logFile, Round($currentTime / 1000, 2) & "s ---------------------------------")
 FileWriteLine($logFile, "")
 
 Global $configFile = "C:\CopTrax Support\config.txt"
@@ -42,17 +46,22 @@ MsgBox($MB_OK, "CPU and Memory Monitor", $txt, 5)
 
 HotKeySet("+!q", "HotKeyPressed") ; Esc to stop testing
 
-Local $hTimer = TimerInit()	; Begin the timer and store the handler
 Local $timeout = 1000
-Local $currentTime = TimerDiff($hTimer)
+Local $timeoutH = 1000
 Global $testEnd = False
 
 While Not $testEnd
 	$currentTime = TimerDiff($hTimer)
 	If  $currentTime > $timeout Then
 		ReportCPUMemory()
-		$timeout += 60*1000
+		$timeout = $currentTime + 60*1000
 	EndIf
+
+	If $currentTime > $timeoutH Then
+		ReportProcess()
+		$timeoutH = $currentTime + 60*60*1000
+	EndIf
+
    Sleep(100)
 WEnd
 
@@ -93,6 +102,17 @@ Func HotKeyPressed()
    If @HotKeyPressed = "+!q" Then $testEnd = True	;	Stop testing marker
  EndFunc   ;==>HotKeyPressed
 
+Func ReportProcess()
+	Local $sBuf = @ComSpec & " /c WMIC PROCESS GET description,HandleCount,PageFileUsage,ProcessId,ThreadCount,WorkingSetSize"
+	Local $sStatus = Run($sBuf, @SystemDir, @SW_HIDE, 8)
+    While 1
+        $sBuf = StdoutRead($sStatus)
+		FileWrite($logFile,$sBuf)
+
+        If @Error then ExitLoop ; We have lift off, let's go!
+    WEnd
+EndFunc
+
 Func ReportCPUMemory()
 	Local $PID[5]
 	Local $TimeP[5]
@@ -120,6 +140,7 @@ Func ReportCPUMemory()
 	$aLine &= ', Free: ' & Floor($aData[6] / 1024 / 1024)
 	$aLine &= ', Usage: ' & $aMem[0] & '%.'
 	FileWriteLine($logFile, $aLine)
+	Local $rep = ($aMem[0] > 40)
 
 	$aLine = 'Kernel Memory (MB) ' & @TAB
 	$aLine &= 'Paged: ' & Floor($aData[7] / 1024 / 1024)
@@ -142,6 +163,8 @@ Func ReportCPUMemory()
 	$aLine &= ', Threads: ' & $aData[12]
 	FileWriteLine($logFile, $aLine)
 
+	If $rep Then FileWriteLine($logFile, "")
+
 	;FileWriteLine($logFile, "Memory usage " & $aMem[0] & "%, available physical RAM " & $aMem[2] & ", total pagefile " & $aMem[3] & ", available pagefile " & $aMem[4] & ", total virtual " & $aMem[5] & ", available virtual " & $aMem[6] & ".")
 
 	Local $j
@@ -156,12 +179,19 @@ Func ReportCPUMemory()
 				ExitLoop
 			EndIf
 		Next
-		If $added Then
+
+		$aLine = $added ? "+ " : ""
+		If $rep Then $aLine &= "Memory list: "
+
+		If $aLine Then
+			$aLine &= $npl[$i][1] & @TAB & $npl[$i][0] & @TAB
 			$aMem = ProcessGetStats($npl[$i][1])
 			If IsArray($aMem) Then
-				FileWriteLine($logFile, "+ " & $npl[$i][1] & @TAB & $npl[$i][0] & @TAB & Round($aMem[0] / 1024 / 1024) & "MB" & @TAB & Round($aMem[1] / 1024 /1024) & "MB")
+				If $added Or ($aMem[0] > 20000000) Then
+					FileWriteLine($logFile, $aLine & Round($aMem[0] / 1024 / 1024) & "MB" & @TAB & Round($aMem[1] / 1024 /1024) & "MB")
+				EndIf
 			Else
-				FileWriteLine($logFile, "+ " & $npl[$i][1] & @TAB & $npl[$i][0] & @TAB & "#" & @TAB & "#")
+				If $added Then FileWriteLine($logFile, $aLine & "#" & @TAB & "#")
 			EndIf
 		EndIf
 
@@ -172,6 +202,8 @@ Func ReportCPUMemory()
 			EndIf
 		Next
 	Next
+
+	FileWriteLine($logFile, "")
 
 	For $j = 0 To UBound($pl, $UBOUND_ROWS)-1
 		If $pl[$j][1] >= 0 Then FileWriteLine($logFile, "- " & $pl[$j][1] & @TAB & $pl[$j][0] & @TAB & "#" & @TAB & "#")
@@ -199,6 +231,20 @@ Func ReportCPUMemory()
 		FileWriteLine($logFile, $pName[$i] & @TAB & $cUsage & @TAB & $mUsage)
 	Next
 	FileWriteLine($logFile, "")
+EndFunc
+
+Func _ProcessGetHandle($ioProcName)
+    Local $sStatus = Run(@ComSpec & " /c WMIC PROCESS GET handlecount,description,processid,threadcount,virtualsize", @SystemDir, @SW_HIDE, 8)
+    Local $sBuf
+    While 1
+        $sBuf = StdoutRead($sStatus)
+        If @Error then ExitLoop ; We have lift off, let's go!
+		$sBuf = StringStripCR($sBuf)
+    WEnd
+    $sBuf = StringStripCR($sBuf)
+    $sBuf = StringStripWS($sBuf, $STR_STRIPLEADING+$STR_STRIPTRAILING)
+    $sBuf = StringRegExpReplace($sBuf, "\s.", " ")
+    Return $sBuf
 EndFunc
 
 ;#####################################################################
