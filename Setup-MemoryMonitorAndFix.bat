@@ -1,7 +1,7 @@
 @ECHO off
-TITLE CPU and Memory monitor for CopTrax and NetMotion
+TITLE Memory fix and monitor for CopTrax and NetMotion
 CLS
-ECHO   Welcome to setup the CPU and Memory monitor for CopTrax and NetMotion    
+ECHO   Welcome to memory fix and monitor setup for CopTrax and NetMotion    
 ECHO -------------------------------------------------------------------------
 
 :: Check IF we are running as Admin
@@ -12,17 +12,27 @@ SET log=C:\CopTrax Support\CPUMemoryMonitor.log
 CALL :log %date% New Setup
 
 TaskKill /IM CPUMemoryMonitor.exe /F  && (CALL :log Cleared the running process of CPUMemoryMonitor.exe.) || (CALL :log No running CPUMemoryMonitor.exe is found.)
-ECHO   Coping files to target folder
+ECHO Copying files to target folder...
 CD /d %~dp0
 COPY /Y CPUMemoryMonitor.exe "C:\CopTrax Support\"  && (CALL :log Copied CPUMemoryMonitor.exe to C:\CopTrax Support\.) || (CALL :log Cannot update CPUMemoryMonitor.exe in C:\CopTrax Support\.)
-COPY /Y SetupCPUMemoryMonitor.bat "C:\CopTrax Support\"  && (CALL :log Copied SetupCPUMemoryMonitor.bat to C:\CopTrax Support\.) || (CALL :log Cannot update SetupCPUMemoryMonitor.bat in C:\CopTrax Support\.)
+COPY /Y Setup*.bat "C:\CopTrax Support\"  && (CALL :log Copied Setup-MemoryMonitorAndFix.bat to C:\CopTrax Support\.) || (CALL :log Cannot update SetupCPUMemoryMonitor.bat in C:\CopTrax Support\.)
 ECHO Files copied.
+SCHTASKS /Delete /TN "PatchFixMem" /F && (CALL :log Deleted the old PatchFixMem.) || (CALL :log Find no old PatchFixMem.)
+
+IF NOT EXIST "C:\Program Files (x86)\InstallShield Installation Information\{9C049509-055C-4CFF-A116-1D12312225EB}\Install.exe" (CALL :log The Driver has already been removed. && GOTO Mon)
+ECHO Please Click Yes on the pop-up window to confirm the delete of the driver.
+"C:\Program Files (x86)\InstallShield Installation Information\{9C049509-055C-4CFF-A116-1D12312225EB}\Install.exe" -uninst 
+CALL :log Running the initial RealTek Driver installer.
+ECHO The removing may take 1-2 minutes.
+
+:Mon
 ECHO.
 ECHO Select setup option now:
-ECHO Type 1 in case you want to setup the auto luanching of the monitor every time the DVR reboot.
-ECHO Type 2 in case you want to stop the monitor next time the DVR reboot.
+ECHO Type 1 to setup the auto luanching of the monitor every time the DVR reboot.
+ECHO Type 2 to stop the monitor next time the DVR reboot.
 CHOICE /N /C:12 /M "MAKE YOUR CHOICE (1 or 2)"%1
-IF ERRORLEVEL == 2 GOTO CancelMonitor
+IF ERRORLEVEL 2 GOTO CancelMonitor
+
 SCHTASKS /CREATE /SC ONLOGON /TN CPUMemoryMonitor /TR "C:\CopTrax Support\CPUMemoryMonitor.exe" /F 
 C:
 CD "C:\CopTrax Support\"
@@ -33,7 +43,7 @@ EXIT /B
 
 :CancelMonitor
 SCHTASKS /DELETE /TN CPUMemoryMonitor /F
-ECHO The Monitor has been stopped to luance at next reboot.
+CALL :log The Monitor has been stopped to luance at next reboot.
 PAUSE
 EXIT /B
 

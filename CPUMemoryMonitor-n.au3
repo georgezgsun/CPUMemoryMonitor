@@ -47,23 +47,15 @@ MsgBox($MB_OK, "CPU and Memory Monitor", $txt, 5)
 HotKeySet("+!q", "HotKeyPressed") ; Esc to stop testing
 
 Local $timeout = 1000
-Local $timeoutH = 1000
 Global $testEnd = False
 
 While Not $testEnd
 	$currentTime = TimerDiff($hTimer)
 	If  $currentTime > $timeout Then
 		ReportCPUMemory()
-		$timeout +=  60*1000
-		;MsgBox($MB_OK, "CPU and Memory Monitor", $timeout, 5)
+		$timeout += 60*1000
 	EndIf
-
-	If $currentTime > $timeoutH Then
-		ReportProcess()
-		$timeoutH += 60*60*1000
-	EndIf
-
-   Sleep(1000*30)
+   Sleep(100)
 WEnd
 
 FileClose($logFile)
@@ -103,23 +95,29 @@ Func HotKeyPressed()
    If @HotKeyPressed = "+!q" Then $testEnd = True	;	Stop testing marker
  EndFunc   ;==>HotKeyPressed
 
-Func ReportProcess()
-	Local $sBuf = @ComSpec & " /c WMIC PROCESS GET description,HandleCount,PageFileUsage,ProcessId,ThreadCount,WorkingSetSize"
-	Local $sStatus = Run($sBuf, @SystemDir, @SW_HIDE, 8)
-    While 1
-        $sBuf = StdoutRead($sStatus)
-        If @Error then ExitLoop ; We have lift off, let's go!
-		FileWrite($logFile,$sBuf)
-    WEnd
-EndFunc
-
 Func ReportCPUMemory()
 	Local $PID[5]
 	Local $TimeP[5]
+	Local $sp[5] = {"HandleCount", "PageFileUsage", "ProcessId", "ThreadCount", "WorkingSetSize"}
 	Local $i
 	Local $TimeS = _WinAPI_GetSystemTimes()
 	Local $TimeT
 	Local $TimeP
+	Local $sBuf = @ComSpec & " /c WMIC PROCESS GET description"
+	For $i = 0 To 4
+		$sBuf &= "," & $sp[i]
+	Next
+	Local $sStatus = Run($sBuf, @SystemDir, @SW_HIDE, 8)
+
+	$sBuf = ""
+    While 1
+        $sBuf &= StdoutRead($sStatus)
+        If @Error then ExitLoop ; We have lift off, let's go!
+    WEnd
+    $sProc = StringSplit($sBuf, @CRLF)
+	For $i = 0 To 4
+		$sp[i] = StringInStr($sProc[0], $sp[i])
+	Next
 
 	For $i = 0 To 4
 		$PID[$i] = ProcessExists($pName[$i])
@@ -140,7 +138,7 @@ Func ReportCPUMemory()
 	$aLine &= ', Free: ' & Floor($aData[6] / 1024 / 1024)
 	$aLine &= ', Usage: ' & $aMem[0] & '%.'
 	FileWriteLine($logFile, $aLine)
-	Local $rep = ($aMem[0] > 50)
+	Local $rep = ($aMem[0] > 40)
 
 	$aLine = 'Kernel Memory (MB) ' & @TAB
 	$aLine &= 'Paged: ' & Floor($aData[7] / 1024 / 1024)
@@ -181,7 +179,7 @@ Func ReportCPUMemory()
 		Next
 
 		$aLine = $added ? "+ " : ""
-		If $rep Then $aLine &= "Massive memory processes list: "
+		If $rep Then $aLine &= "Memory list: "
 
 		If $aLine Then
 			$aLine &= $npl[$i][1] & @TAB & $npl[$i][0] & @TAB
